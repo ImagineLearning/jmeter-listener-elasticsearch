@@ -162,6 +162,7 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 
 		synchronized (LOCK) {
 
+			StringBuilder BulkRequestData = new StringBuilder();
 			sampleResults.forEach(sampleResult -> {
 
 				LOGGER.debug("Preparing sample result to send to Elasticsearch server");
@@ -172,29 +173,38 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 							"Sample result will not be sent to Elasticsearch server because message content is missing");
 					return;
 				}
-				HttpEntity sampleResultEntity = new StringEntity(sampleResult4External, ContentType.APPLICATION_JSON);
+				JSONObject esDocumentMetaData = new JSONObject();
+				esDocumentMetaData.put("_index", esIndex);
+				esDocumentMetaData.put("_type", esType);
+				esDocumentMetaData.put("_id", UUID.randomUUID().toString());
+				JSONObject esDocumentMetaDataFull = new JSONObject();
+				esDocumentMetaDataFull.put("create", esDocumentMetaData);
 
-				String sampleResultEsDocumentLocation = "/" + esIndex + "/" + esType + "/" + UUID	.randomUUID()
-																									.toString();
-
-				LOGGER.debug("Elasticsearch request - document location: " + sampleResultEsDocumentLocation);
-				LOGGER.debug("Elasticsearch request - document data:\n" + sampleResult4External);
-
-				try {
-					Response sampleResultEsDocumentResponse = esClient.performRequest("POST",
-							sampleResultEsDocumentLocation, Collections.<String, String>emptyMap(), sampleResultEntity);
-
-					LOGGER.debug("Elasticsearch server response - HTTP status code: "
-							+ sampleResultEsDocumentResponse.getStatusLine()
-															.getStatusCode());
-					LOGGER.debug("Elasticsearch server response - HTTP body:\n"
-							+ EntityUtils.toString(sampleResultEsDocumentResponse.getEntity()));
-				} catch (IOException e) {
-					LOGGER.error("Sending sample result to Elasticsearch server failed");
-					LOGGER.error(ExceptionUtils.getStackTrace(e));
-				}
-
+				BulkRequestData.append(
+					esDocumentMetaDataFull.toString()
+					+ "\n"
+					+ sampleResult4External
+					+ "\n"
+				);
 			});
+
+
+			LOGGER.debug("Elasticsearch request - Bulk Data Size: " + sampleResults.size());
+			LOGGER.debug("Elasticsearch request - Bulk Data:\n" + BulkRequestData.toString());
+			HttpEntity sampleResultEntity = new StringEntity(BulkRequestData.toString(), ContentType.APPLICATION_JSON);
+			try {
+				Response sampleResultEsDocumentResponse = esClient.performRequest("POST",
+						"_bulk", Collections.<String, String>emptyMap(), sampleResultEntity);
+
+				LOGGER.debug("Elasticsearch server response - HTTP status code: "
+						+ sampleResultEsDocumentResponse.getStatusLine()
+						.getStatusCode());
+				LOGGER.debug("Elasticsearch server response - HTTP body:\n"
+						+ EntityUtils.toString(sampleResultEsDocumentResponse.getEntity()));
+			} catch (IOException e) {
+				LOGGER.error("Sending sample result to Elasticsearch server failed");
+				LOGGER.error(ExceptionUtils.getStackTrace(e));
+			}
 		}
 
 	}
