@@ -8,14 +8,11 @@ import java.net.UnknownHostException;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
+import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -44,15 +41,19 @@ import org.apache.http.impl.auth.SPNegoSchemeFactory;
 import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
 import org.apache.http.ssl.SSLContextBuilder;
-import org.apache.http.util.EntityUtils;
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.visualizers.backend.AbstractBackendListenerClient;
 import org.apache.jmeter.visualizers.backend.BackendListenerContext;
-import org.elasticsearch.client.Response;
+import org.elasticsearch.action.bulk.BulkRequest;
+import org.elasticsearch.action.bulk.BulkResponse;
+import org.elasticsearch.action.index.IndexRequest;
+import org.elasticsearch.client.RestHighLevelClient;
+import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
 import org.elasticsearch.client.RestClientBuilder.HttpClientConfigCallback;
+import org.elasticsearch.common.xcontent.XContentType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -63,8 +64,17 @@ import net.minidev.json.JSONObject;
 
 public class ElasticsearchListener extends AbstractBackendListenerClient {
 
+	public void setEsIndexWithDate(String esIndex) {
+		// Append a date to help keep elastic search performant
+		String esDateIndexPattern = "yyyy.MM.dd";
+		SimpleDateFormat simpleDateFormat = new SimpleDateFormat(esDateIndexPattern);
+		String todaysDate = simpleDateFormat.format(new Date());
+
+		this.esIndex = esIndex + "-" + todaysDate;
+	}
+
 	private enum SampleResultDefaultAttributes {
-		Timestamp, StartTime, EndTime, Time, Latency, ConnectTime, IdleTime, SampleLabel, GroupName, ThreadName, ResponseCode, IsResponseCodeOk, IsSuccessful, SampleCount, ErrorCount, ContentType, MediaType, DataType, RequestHeaders, ResponseHeaders, HeadersSize, SamplerData, ResponseMessage, ResponseData, BodySize, Bytes
+		Timestamp, StartTime, EndTime, Time, Latency, ConnectTime, IdleTime, SampleLabel, GroupName, ThreadName, ResponseCode, IsResponseCodeOk, IsSuccessful, SampleCount, ErrorCount, ContentType, MediaType, DataType, RequestHeaders, ResponseHeaders, HeadersSize, SamplerData, ResponseMessage, ResponseData, BodySize, Bytes, RunGUID
 	};
 
 	private enum EsSupportedAuthMethods {
@@ -109,9 +119,12 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 
 	private boolean isConnTrustAllSslCerts = false;
 
-	private RestClient esClient = null;
+	private RestHighLevelClient esClient = null;
 
 	private boolean isError = false;
+
+	private String jmRunGUID = (System.getenv("RUN_ID") != null)
+			? System.getenv("RUN_ID"): UUID.randomUUID().toString();
 
 	/*
 	 * @Override public SampleResult createSampleResult(BackendListenerContext
@@ -159,39 +172,33 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 
 		synchronized (LOCK) {
 
+			BulkRequest bulkRequest = new BulkRequest();
+			StringBuilder BulkRequestData = new StringBuilder();
 			sampleResults.forEach(sampleResult -> {
 
 				LOGGER.debug("Preparing sample result to send to Elasticsearch server");
-				String sampleResult4External = getSampleResult4External(sampleResult);
+				JSONObject sampleResult4External = getSampleResult4External(sampleResult);
 
 				if (sampleResult4External == null || sampleResult4External.isEmpty()) {
 					LOGGER.warn(
 							"Sample result will not be sent to Elasticsearch server because message content is missing");
 					return;
 				}
-				HttpEntity sampleResultEntity = new StringEntity(sampleResult4External, ContentType.APPLICATION_JSON);
 
-				String sampleResultEsDocumentLocation = "/" + esIndex + "/" + esType + "/" + UUID	.randomUUID()
-																									.toString();
-
-				LOGGER.debug("Elasticsearch request - document location: " + sampleResultEsDocumentLocation);
-				LOGGER.debug("Elasticsearch request - document data:\n" + sampleResult4External);
-
-				try {
-					Response sampleResultEsDocumentResponse = esClient.performRequest("POST",
-							sampleResultEsDocumentLocation, Collections.<String, String>emptyMap(), sampleResultEntity);
-
-					LOGGER.debug("Elasticsearch server response - HTTP status code: "
-							+ sampleResultEsDocumentResponse.getStatusLine()
-															.getStatusCode());
-					LOGGER.debug("Elasticsearch server response - HTTP body:\n"
-							+ EntityUtils.toString(sampleResultEsDocumentResponse.getEntity()));
-				} catch (IOException e) {
-					LOGGER.error("Sending sample result to Elasticsearch server failed");
-					LOGGER.error(ExceptionUtils.getStackTrace(e));
-				}
-
+				bulkRequest.add(new IndexRequest(esIndex).id(UUID.randomUUID().toString())
+					.source(sampleResult4External));
 			});
+
+
+			LOGGER.debug("Elasticsearch request - Bulk Data Size: " + sampleResults.size());
+			LOGGER.debug("Elasticsearch request - Bulk Data:\n" + BulkRequestData.toString());
+			HttpEntity sampleResultEntity = new StringEntity(BulkRequestData.toString(), ContentType.APPLICATION_JSON);
+			try {
+				BulkResponse sampleResultEsDocumentResponse = esClient.bulk(bulkRequest, RequestOptions.DEFAULT);
+			} catch (IOException e) {
+				LOGGER.error("Sending sample result to Elasticsearch server failed");
+				LOGGER.error(ExceptionUtils.getStackTrace(e));
+			}
 		}
 
 	}
@@ -218,7 +225,8 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 		}
 
 		try {
-			esClient.performRequest("HEAD", "/", Collections.<String, String>emptyMap());
+			//esLowClient.performRequest("HEAD", "/", Collections.<String, String>emptyMap());
+			esClient.info(RequestOptions.DEFAULT);
 			isError = false;
 			LOGGER.info("Elasticsearch server ping test: Successful");
 		} catch (IOException e) {
@@ -251,9 +259,9 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 
 		esUrl = context	.getParameter(ElasticsearchListenerParameters.ELASTICSEARCH_URL)
 						.trim();
-		esIndex = context	.getParameter(ElasticsearchListenerParameters.ELASTICSEARCH_INDEX)
+		setEsIndexWithDate(context	.getParameter(ElasticsearchListenerParameters.ELASTICSEARCH_INDEX)
 							.trim()
-							.toLowerCase();
+							.toLowerCase());
 		esType = context.getParameter(ElasticsearchListenerParameters.ELASTICSEARCH_TYPE)
 						.trim();
 		esAuthMethod = context	.getParameter(ElasticsearchListenerParameters.ELASTICSEARCH_AUTH_METHOD)
@@ -449,7 +457,7 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 
 	}
 
-	private RestClient getElasticsearchRestClient() {
+	private RestHighLevelClient getElasticsearchRestClient() {
 
 		if (isError) {
 			LOGGER.warn(
@@ -461,7 +469,10 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 
 		RestClientBuilder clientBuilder = RestClient.builder(new HttpHost(esHost, esPort, esProtocol));
 
+
+
 		HttpClientConfigCallback httpClientConfig = new RestClientBuilder.HttpClientConfigCallback() {
+
 
 			@Override
 			public HttpAsyncClientBuilder customizeHttpClient(HttpAsyncClientBuilder httpClientBuilder) {
@@ -543,13 +554,13 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 
 		clientBuilder.setHttpClientConfigCallback(httpClientConfig);
 
-		esClient = clientBuilder.build();
+		esClient = new RestHighLevelClient(clientBuilder);
 
 		return esClient;
 
 	}
 
-	private String getSampleResult4External(SampleResult sampleResult) {
+	private JSONObject getSampleResult4External(SampleResult sampleResult) {
 
 		LOGGER.debug("Preparing sample result message");
 
@@ -654,7 +665,9 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 							sampleResult4ExternalJson.put(attribute.toString(), sampleResult.getResponseMessage());
 							break;
 						case ResponseData:
-							sampleResult4ExternalJson.put(attribute.toString(), sampleResult.getResponseDataAsString());
+							//sampleResult4ExternalJson.put(attribute.toString(), sampleResult.getResponseDataAsString());
+							sampleResult4ExternalJson.put(attribute.toString(),
+									"Response data will not be included to save memory and improve performance for JMeter");
 							break;
 						case BodySize:
 							sampleResult4ExternalJson.put(attribute.toString(), sampleResult.getBodySizeAsLong());
@@ -662,13 +675,16 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 						case Bytes:
 							sampleResult4ExternalJson.put(attribute.toString(), sampleResult.getBytesAsLong());
 							break;
+						case RunGUID:
+							sampleResult4ExternalJson.put(attribute.toString(), this.jmRunGUID.toString());
+							break;
 						}
 					}
 
 				});
 
 		if (sampleResult4ExternalJson != null && !sampleResult4ExternalJson.isEmpty()) {
-			return sampleResult4ExternalJson.toString();
+			return sampleResult4ExternalJson;
 		} else {
 			return null;
 		}
