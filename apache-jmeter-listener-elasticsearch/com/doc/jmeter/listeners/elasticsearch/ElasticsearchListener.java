@@ -161,6 +161,18 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 	}
 
 	@Override
+	public SampleResult createSampleResult(BackendListenerContext context, SampleResult result) {
+
+		// TODO: Should we exclude this data for better performance?
+		result.setResponseData("", null);
+		result.setResponseHeaders(null);
+		result.setSamplerData(null);
+		result.setResponseHeaders(null);
+
+		return result;
+	}
+
+	@Override
 	public void handleSampleResults(List<SampleResult> sampleResults, BackendListenerContext context) {
 
 		if (isError) {
@@ -666,8 +678,7 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 							break;
 						case ResponseData:
 							//sampleResult4ExternalJson.put(attribute.toString(), sampleResult.getResponseDataAsString());
-							sampleResult4ExternalJson.put(attribute.toString(),
-									"Response data will not be included to save memory and improve performance for JMeter");
+							sampleResult4ExternalJson.put(attribute.toString(), "");
 							break;
 						case BodySize:
 							sampleResult4ExternalJson.put(attribute.toString(), sampleResult.getBodySizeAsLong());
