@@ -46,14 +46,12 @@ import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.visualizers.backend.AbstractBackendListenerClient;
 import org.apache.jmeter.visualizers.backend.BackendListenerContext;
 import org.elasticsearch.action.bulk.BulkRequest;
-import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
 import org.elasticsearch.client.RestClientBuilder.HttpClientConfigCallback;
-import org.elasticsearch.common.xcontent.XContentType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -63,15 +61,6 @@ import com.doc.jmeter.listeners.elasticsearch.util.ParameterValueChecker;
 import net.minidev.json.JSONObject;
 
 public class ElasticsearchListener extends AbstractBackendListenerClient {
-
-	public void setEsIndexWithDate(String esIndex) {
-		// Append a date to help keep elastic search performant
-		String esDateIndexPattern = "yyyy.MM.dd";
-		SimpleDateFormat simpleDateFormat = new SimpleDateFormat(esDateIndexPattern);
-		String todaysDate = simpleDateFormat.format(new Date());
-
-		this.esIndex = esIndex + "-" + todaysDate;
-	}
 
 	private enum SampleResultDefaultAttributes {
 		Timestamp, StartTime, EndTime, Time, Latency, ConnectTime, IdleTime, SampleLabel, GroupName, ThreadName, ResponseCode, IsResponseCodeOk, IsSuccessful, SampleCount, ErrorCount, ContentType, MediaType, DataType, RequestHeaders, ResponseHeaders, HeadersSize, SamplerData, ResponseMessage, ResponseData, BodySize, Bytes, RunGUID
@@ -176,24 +165,23 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 	public void handleSampleResults(List<SampleResult> sampleResults, BackendListenerContext context) {
 
 		if (isError) {
-			LOGGER.warn("Sample result will not be sent to Elasticsearch server due to server ping failure");
+			LOGGER.warn("Sample result will not be sent to Elastic Search server due to server ping failure");
 			return;
 		}
 
-		LOGGER.debug("Processing sample results for request to Elasticsearch server");
+		LOGGER.debug("Processing sample results for request to Elastic Search server");
 
 		synchronized (LOCK) {
 
 			BulkRequest bulkRequest = new BulkRequest();
-			StringBuilder BulkRequestData = new StringBuilder();
 			sampleResults.forEach(sampleResult -> {
 
-				LOGGER.debug("Preparing sample result to send to Elasticsearch server");
+				LOGGER.debug("Preparing sample result to send to Elastic Search server");
 				JSONObject sampleResult4External = getSampleResult4External(sampleResult);
 
 				if (sampleResult4External == null || sampleResult4External.isEmpty()) {
 					LOGGER.warn(
-							"Sample result will not be sent to Elasticsearch server because message content is missing");
+							"Sample result will not be sent to Elastic Search server because message content is missing");
 					return;
 				}
 
@@ -201,14 +189,12 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 					.source(sampleResult4External));
 			});
 
-
-			LOGGER.debug("Elasticsearch request - Bulk Data Size: " + sampleResults.size());
-			LOGGER.debug("Elasticsearch request - Bulk Data:\n" + BulkRequestData.toString());
-			HttpEntity sampleResultEntity = new StringEntity(BulkRequestData.toString(), ContentType.APPLICATION_JSON);
+			LOGGER.debug("Elastic Search request - Bulk Data Size: " + sampleResults.size());
 			try {
-				BulkResponse sampleResultEsDocumentResponse = esClient.bulk(bulkRequest, RequestOptions.DEFAULT);
+				esClient.bulk(bulkRequest, RequestOptions.DEFAULT);
+				LOGGER.debug("Sample results sent to Elastic Search");
 			} catch (IOException e) {
-				LOGGER.error("Sending sample result to Elasticsearch server failed");
+				LOGGER.error("Sending sample result to Elastic Search server failed");
 				LOGGER.error(ExceptionUtils.getStackTrace(e));
 			}
 		}
@@ -218,21 +204,21 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 	@Override
 	public void setupTest(BackendListenerContext context) throws Exception {
 
-		LOGGER.debug("Initializing Elasticsearch listener");
+		LOGGER.debug("Initializing Elastic Search listener");
 
 		getListenerParameters(context);
 		checkListenerParameters();
 
 		if (isError) {
 			LOGGER.error(
-					"One or several checks of Elasticsearch listener parameters failed. Terminating Elasticsearch listener");
+					"One or several checks of Elastic Search listener parameters failed. Terminating Elastic Search listener");
 			return;
 		}
 
 		esClient = getElasticsearchRestClient();
 
 		if (isError) {
-			LOGGER.error("Elasticsearch REST client initialization failed. Terminating Elasticsearch listener");
+			LOGGER.error("Elastic Search REST client initialization failed. Terminating Elastic Search listener");
 			return;
 		}
 
@@ -252,13 +238,13 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 	@Override
 	public void teardownTest(BackendListenerContext context) throws Exception {
 
-		LOGGER.debug("Shutting down Elasticsearch listener");
+		LOGGER.debug("Shutting down Elastic Search listener");
 
 		if (esClient != null) {
 			try {
 				esClient.close();
 			} catch (IOException e) {
-				LOGGER.error("Connection closure to Elasticsearch server failed");
+				LOGGER.error("Connection closure to Elastic Search server failed");
 				LOGGER.error(ExceptionUtils.getStackTrace(e));
 			}
 		}
@@ -267,13 +253,13 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 
 	private void getListenerParameters(BackendListenerContext context) {
 
-		LOGGER.debug("Retrieving Elasticsearch listener parameters");
+		LOGGER.debug("Retrieving Elastic Search listener parameters");
 
 		esUrl = context	.getParameter(ElasticsearchListenerParameters.ELASTICSEARCH_URL)
 						.trim();
-		setEsIndexWithDate(context	.getParameter(ElasticsearchListenerParameters.ELASTICSEARCH_INDEX)
+		esIndex = context	.getParameter(ElasticsearchListenerParameters.ELASTICSEARCH_INDEX)
 							.trim()
-							.toLowerCase());
+							.toLowerCase();
 		esType = context.getParameter(ElasticsearchListenerParameters.ELASTICSEARCH_TYPE)
 						.trim();
 		esAuthMethod = context	.getParameter(ElasticsearchListenerParameters.ELASTICSEARCH_AUTH_METHOD)
@@ -310,7 +296,7 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 
 	private void checkListenerParameters() {
 
-		LOGGER.debug("Checking Elasticsearch listener parameters");
+		LOGGER.debug("Checking Elastic Search listener parameters");
 
 		// Get list of excluded attributes of sample result
 		if (!ParameterValueChecker.isNullOrEmpty(srExcludedAttributes)) {
@@ -323,7 +309,7 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 			LOGGER.debug("Excluded sample result attributes: " + sampleResultExcludedAttributes);
 		}
 
-		// Check Elasticsearch server URL
+		// Check Elastic Search server URL
 		if (!ParameterValueChecker.isNullOrEmpty(esUrl)) {
 			try {
 				URL esURL = new URL(esUrl);
@@ -332,7 +318,7 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 				esPort = esURL.getPort();
 			} catch (MalformedURLException e) {
 				isError = true;
-				LOGGER.error("Parsing Elasticsearch server URL failed");
+				LOGGER.error("Parsing Elastic Search server URL failed");
 				LOGGER.error(ExceptionUtils.getStackTrace(e));
 			}
 		} else {
@@ -341,7 +327,7 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 					+ ElasticsearchListenerParameters.ELASTICSEARCH_URL);
 		}
 
-		// Check Elasticsearch index and type
+		// Check Elastic Search index and type
 		if (ParameterValueChecker.isNullOrEmpty(esIndex)) {
 			isError = true;
 			LOGGER.error("Mandatory parameter missing. Check parameter: "
@@ -366,7 +352,7 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 							|| ParameterValueChecker.isNullOrEmpty(esPassword)) {
 						isError = true;
 						LOGGER.error(
-								"Elasticsearch basic authentication method selected. One or several mandatory parameters missing. Check parameters: "
+								"Elastic Search basic authentication method selected. One or several mandatory parameters missing. Check parameters: "
 										+ ElasticsearchListenerParameters.ELASTICSEARCH_USER + ", "
 										+ ElasticsearchListenerParameters.ELASTICSEARCH_PASSWORD);
 					}
@@ -376,7 +362,7 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 				}
 			} catch (IllegalArgumentException e) {
 				isError = true;
-				LOGGER.error("Unsupported Elasticsearch authentication method. Check parameter: "
+				LOGGER.error("Unsupported Elastic Search authentication method. Check parameter: "
 						+ ElasticsearchListenerParameters.ELASTICSEARCH_AUTH_METHOD);
 			}
 
@@ -473,7 +459,7 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 
 		if (isError) {
 			LOGGER.warn(
-					"Elasticsearch REST client will not be initialized due to failure during checks of Elasticsearch listener parameters. Terminating Elasticsearch listener");
+					"Elastic Search REST client will not be initialized due to failure during checks of Elastic Search listener parameters. Terminating Elastic Search listener");
 			return null;
 		}
 
@@ -507,7 +493,7 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 
 					CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
 
-					// Elasticsearch authentication
+					// Elastic Search authentication
 					if (isEsAuth) {
 						switch (EsSupportedAuthMethods.valueOf(esAuthMethod)) {
 
