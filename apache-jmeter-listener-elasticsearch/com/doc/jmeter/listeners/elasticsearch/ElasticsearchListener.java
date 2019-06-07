@@ -227,7 +227,7 @@ public class ElasticsearchListener extends AbstractBackendListenerClient {
 			esClient.info(RequestOptions.DEFAULT);
 			isError = false;
 			LOGGER.info("Elasticsearch server ping test: Successful");
-		} catch (IOException e) {
+		} catch (Exception e) {
 			isError = true;
 			LOGGER.error("Elasticsearch server ping test: Failed");
 			LOGGER.error(ExceptionUtils.getStackTrace(e));
