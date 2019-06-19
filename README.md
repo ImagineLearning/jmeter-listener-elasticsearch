@@ -18,10 +18,23 @@ Dependency declaration for Maven POM:
 
 <pre><code>&lt;dependency&gt;
 	&lt;groupId&gt;org.elasticsearch.client&lt;/groupId&gt;
-	&lt;artifactId&gt;rest&lt;/artifactId&gt;
-	&lt;version&gt;RELEASE&lt;/version&gt;
-&lt;/dependency&gt;</code></pre>
-* Several libraries (such as HTTP client that is used by Elasticsearch Java REST client, JSON processor, logging framework) that are already a part of JMeter distribution (the statement is based on content of distribution of JMeter version 3.2).
+	&lt;artifactId&gt;elasticsearch-rest-client&lt;/artifactId&gt;
+	&lt;version&gt;7.1.1&lt;/version&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+	&lt;groupId&gt;org.elasticsearch.client&lt;/groupId&gt;
+	&lt;artifactId&gt;elasticsearch-rest-high-level-client&lt;/artifactId&gt;
+	&lt;version&gt;7.1.1&lt;/version&gt;
+&lt;/dependency&gt;
+</code></pre>
+* Several libraries (such as HTTP client that is used by Elasticsearch Java REST client, JSON processor, logging framework) that are already a part of JMeter distribution (the statement is based on content of distribution of JMeter version 5.1).
+* Here is an example maven command (linux) to download and copy all dependencies to JMeter lib folder.  Assumes `pom.xml` file is in `<JMETER_HOME` directory.  (Example `pom.xml` can be found at https://github.com/ImagineLearning/jmeter-container/blob/master/jmeter_home/pom.xml)
+```
+cd ${JMETER_HOME} \
+&& mvn dependency:copy-dependencies \
+&& cp target/dependency/* lib \
+&& rm -rf target
+```
 
 
 ## Installation
@@ -50,8 +63,4 @@ Dependency declaration for Maven POM:
 
 
 ## Additional notes
-The listener plugin has been tested with JMeter version 3.3 running on JRE versions 1.8 and 1.9 in conjunction with Elasticsearch server version 5.6.3.
-
-In recent versions of JMeter API, several methods related to sample result processing, have been deprecated and newer replacing methods were introduced. The current version of the listener plugin makes use of the latter methods.
-
-Recent versions of JMeter API deprecate usage of Jorphan Logging Manager, which is superseded with Simple Logging Facade for Java (SLF4J). The current version of the listener plugin makes use of SLF4J for logging.
+The listener plugin has been tested with JMeter version 5.1 running on JRE versions 1.8 and 1.9 in conjunction with Elasticsearch server version 7.1.1.
